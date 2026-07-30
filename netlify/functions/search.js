@@ -19,7 +19,12 @@ exports.handler = async (event, context) => {
 
   try {
     const url = 'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(q) + '&limit=8';
-    const mlResp = await fetch(url);
+    const mlResp = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; RastreadorDePrecos/1.0)',
+        'Accept': 'application/json'
+      }
+    });
     if (!mlResp.ok) {
       throw new Error('Mercado Livre respondeu ' + mlResp.status);
     }
