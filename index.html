@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rastreador de Preços — Black Friday</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#eef0f3; --muted:#9aa3b2; --accent:#4f8cff; --good:#3ecf8e; --bad:#ff5c72; --warn:#ffb74f;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);}
+  header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+  header h1{font-size:18px;margin:0;font-weight:600;}
+  header .sub{color:var(--muted);font-size:12.5px;margin-top:2px;}
+  main{max-width:980px;margin:0 auto;padding:20px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;}
+  label{font-size:12.5px;color:var(--muted);display:block;margin-bottom:6px;}
+  textarea,input{width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;}
+  textarea{resize:vertical;min-height:56px;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;}
+  button.secondary{background:var(--panel2);border:1px solid var(--border);color:var(--text);}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--muted);}
+  button:disabled{opacity:.5;cursor:default;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+  .list{display:flex;flex-direction:column;gap:10px;}
+  .prod{display:flex;justify-content:space-between;align-items:center;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;}
+  .prod:hover{border-color:var(--accent);}
+  .prod .name{font-weight:600;font-size:14px;}
+  .prod .meta{color:var(--muted);font-size:12px;margin-top:3px;}
+  .prod .price{font-size:16px;font-weight:700;}
+  .prod .delta.good{color:var(--good);}
+  .prod .delta.bad{color:var(--bad);}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:#2a2f3a;color:var(--muted);margin-left:8px;}
+  .empty{color:var(--muted);font-size:13.5px;text-align:center;padding:30px 10px;}
+  .backbtn{margin-bottom:14px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border);}
+  th{color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;}
+  a{color:var(--accent);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  .offers{display:flex;flex-direction:column;gap:10px;}
+  .offer{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .offer .top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;}
+  .offer .fonte{font-weight:600;font-size:13.5px;}
+  .offer .avista{font-size:17px;font-weight:700;color:var(--good);}
+  .offer .parc{color:var(--muted);font-size:12.5px;margin-top:2px;}
+  .offer .cupom{margin-top:6px;font-size:12.5px;color:var(--warn);}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--border);padding:10px 18px;border-radius:8px;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.4);z-index:99;}
+  .hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  svg text{font-family:inherit;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📉 Rastreador de Preços</h1>
+    <div class="sub">Acompanhamento até a Black Friday</div>
+  </div>
+  <div id="daysLeft" class="badge"></div>
+</header>
+
+<main id="app"></main>
+
+<script>
+const state = {
+  view: 'home', // home | product
+  products: {}, // slug -> {description, brand, ref, spec, history:[]}
+  currentSlug: null,
+  loading: false,
+};
+
+function slugify(str){
+  return str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,80);
+}
+
+function fmtBRL(n){
+  if(n === null || n === undefined || isNaN(n)) return '—';
+  return n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+}
+
+function daysUntilBlackFriday(){
+  const now = new Date();
+  let year = now.getFullYear();
+  // Black Friday = 4th Friday of November
+  function bf(y){
+    const d = new Date(y,10,1);
+    let count=0;
+    while(true){
+      if(d.getDay()===5){count++; if(count===4) return new Date(d);}
+      d.setDate(d.getDate()+1);
+    }
+  }
+  let target = bf(year);
+  if(target < now) target = bf(year+1);
+  const diff = Math.ceil((target - now)/(1000*60*60*24));
+  return {days:diff, date:target};
+}
+
+async function loadAll(){
+  try{
+    const keys = Object.keys(localStorage).filter(k => k.startsWith('product:'));
+    for(const k of keys){
+      try{
+        const raw = localStorage.getItem(k);
+        if(raw){
+          const slug = k.replace('product:','');
+          state.products[slug] = JSON.parse(raw);
+        }
+      }catch(e){}
+    }
+  }catch(e){ console.error('storage load error', e); }
+  render();
+}
+
+async function saveProduct(slug){
+  try{
+    localStorage.setItem('product:'+slug, JSON.stringify(state.products[slug]));
+  }catch(e){
+    console.error('save error', e);
+    showToast('Erro ao salvar. Tente novamente.');
+  }
+}
+
+function showToast(msg){
+  const t = document.createElement('div');
+  t.className='toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 3200);
+}
+
+// Parses one input line into description/brand/ref/spec (best-effort, kept raw too)
+function buildQuery(raw){
+  return raw.trim();
+}
+
+async function callClaudeForPrices(query){
+  const resp = await fetch('/api/search?q=' + encodeURIComponent(query));
+  if(!resp.ok){
+    const errBody = await resp.json().catch(()=>({}));
+    throw new Error(errBody.error || ('Falha na busca: ' + resp.status));
+  }
+  return await resp.json();
+}
+
+async function addResultToProduct(raw, result, existingSlug){
+  const displayName = result.produto_identificado || raw.trim();
+  const slug = existingSlug || slugify(displayName) || slugify(raw);
+
+  if(!state.products[slug]){
+    state.products[slug] = {
+      description: displayName,
+      rawQuery: raw.trim(),
+      createdAt: new Date().toISOString(),
+      history: []
+    };
+  }
+  const entry = {
+    date: new Date().toISOString(),
+    melhorPrecoAvista: result.melhor_preco_avista ?? (result.ofertas && result.ofertas[0] ? result.ofertas[0].preco_avista : null),
+    ofertas: result.ofertas || [],
+    observacoes: result.observacoes || null
+  };
+  state.products[slug].history.push(entry);
+  await saveProduct(slug);
+  return slug;
+}
+
+async function handleSearch(){
+  const raw = document.getElementById('inputLine').value;
+  if(!raw || !raw.trim()){
+    showToast('Digite a descrição do produto primeiro.');
+    return;
+  }
+  state.loading = true;
+  render();
+  try{
+    const result = await callClaudeForPrices(raw);
+    const slug = await addResultToProduct(raw, result);
+    document.getElementById('inputLine').value = '';
+    state.currentSlug = slug;
+    state.view = 'product';
+    showToast('Preços atualizados!');
+  }catch(e){
+    console.error(e);
+    showToast(e.message || 'Erro ao buscar preços. Tente novamente em instantes.');
+  }finally{
+    state.loading = false;
+    render();
+  }
+}
+
+async function handleImport(){
+  const raw = document.getElementById('importQuery').value;
+  const jsonRaw = document.getElementById('importJson').value;
+  if(!jsonRaw || !jsonRaw.trim()){
+    showToast('Cole o JSON retornado pelo Claude primeiro.');
+    return;
+  }
+  let cleaned = jsonRaw.trim().replace(/```json/g,'').replace(/```/g,'').trim();
+  const first = cleaned.indexOf('{');
+  const last = cleaned.lastIndexOf('}');
+  if(first >= 0 && last > first) cleaned = cleaned.substring(first, last+1);
+  let result;
+  try{
+    result = JSON.parse(cleaned);
+  }catch(e){
+    showToast('Não consegui ler esse JSON. Confira se colou o conteúdo completo.');
+    return;
+  }
+  const query = raw && raw.trim() ? raw.trim() : (result.produto_identificado || 'Produto importado');
+  const slug = await addResultToProduct(query, result);
+  document.getElementById('importJson').value = '';
+  document.getElementById('importQuery').value = '';
+  state.currentSlug = slug;
+  state.view = 'product';
+  showToast('Resultado importado!');
+  render();
+}
+
+async function refreshProduct(slug){
+  const p = state.products[slug];
+  if(!p) return;
+  const query = p.rawQuery || p.description;
+  state.loading = true;
+  render();
+  try{
+    const result = await callClaudeForPrices(query);
+    await addResultToProduct(query, result, slug);
+    showToast('Preço atualizado!');
+  }catch(e){
+    console.error(e);
+    showToast(e.message || 'Erro ao buscar preços. Tente novamente em instantes.');
+  }finally{
+    state.loading = false;
+    render();
+  }
+}
+
+async function deleteProduct(slug){
+  if(!confirm('Remover este produto e todo o histórico?')) return;
+  try{
+    localStorage.removeItem('product:'+slug);
+  }catch(e){}
+  delete state.products[slug];
+  state.view = 'home';
+  render();
+}
+
+function lastEntry(p){
+  return p.history && p.history.length ? p.history[p.history.length-1] : null;
+}
+
+function priceDelta(p){
+  if(!p.history || p.history.length < 2) return null;
+  const first = p.history[0].melhorPrecoAvista;
+  const last = p.history[p.history.length-1].melhorPrecoAvista;
+  if(first == null || last == null || first === 0) return null;
+  const diff = last - first;
+  const pct = (diff/first)*100;
+  return {diff, pct};
+}
+
+function renderChart(history){
+  const points = history.filter(h => h.melhorPrecoAvista != null);
+  if(points.length < 2){
+    return `<div class="hint">É preciso de pelo menos 2 buscas para desenhar o gráfico de evolução.</div>`;
+  }
+  const W = 640, H = 200, padL=55, padR=20, padT=20, padB=30;
+  const prices = points.map(p=>p.melhorPrecoAvista);
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = (max-min) || 1;
+  const stepX = (W-padL-padR)/(points.length-1);
+  const xy = points.map((p,i)=>{
+    const x = padL + i*stepX;
+    const y = padT + (H-padT-padB) * (1 - (p.melhorPrecoAvista-min)/range);
+    return {x,y,p};
+  });
+  const pathD = xy.map((pt,i)=> (i===0?'M':'L')+pt.x.toFixed(1)+','+pt.y.toFixed(1)).join(' ');
+  const areaD = pathD + ` L${xy[xy.length-1].x.toFixed(1)},${H-padB} L${xy[0].x.toFixed(1)},${H-padB} Z`;
+
+  const circles = xy.map(pt => `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3.5" fill="var(--accent)" />
+    <title>${new Date(pt.p.date).toLocaleDateString('pt-BR')}: ${fmtBRL(pt.p.melhorPrecoAvista)}</title>`).join('');
+
+  const labels = xy.map((pt,i) => {
+    if(i!==0 && i!==xy.length-1 && xy.length>4) return '';
+    return `<text x="${pt.x.toFixed(1)}" y="${H-8}" font-size="10" fill="var(--muted)" text-anchor="middle">${new Date(pt.p.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</text>`;
+  }).join('');
+
+  return `
+  <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:640px;display:block;margin:0 auto;">
+    <defs>
+      <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <text x="${padL-8}" y="${padT+4}" font-size="10" fill="var(--muted)" text-anchor="end">${fmtBRL(max)}</text>
+    <text x="${padL-8}" y="${H-padB}" font-size="10" fill="var(--muted)" text-anchor="end">${fmtBRL(min)}</text>
+    <path d="${areaD}" fill="url(#grad)" stroke="none"/>
+    <path d="${pathD}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+    ${circles}
+    ${labels}
+  </svg>`;
+}
+
+function renderHome(){
+  const {days, date} = daysUntilBlackFriday();
+  document.getElementById('daysLeft').textContent = `🛍️ ${days} dias até a Black Friday (${date.toLocaleDateString('pt-BR')})`;
+
+  const slugs = Object.keys(state.products);
+  let listHtml = '';
+  if(slugs.length === 0){
+    listHtml = `<div class="empty">Nenhum produto rastreado ainda. Cole a descrição de um produto acima e clique em Buscar.</div>`;
+  }else{
+    listHtml = '<div class="list">' + slugs.map(slug=>{
+      const p = state.products[slug];
+      const last = lastEntry(p);
+      const delta = priceDelta(p);
+      const price = last ? fmtBRL(last.melhorPrecoAvista) : '—';
+      let deltaHtml = '';
+      if(delta){
+        const cls = delta.diff <= 0 ? 'good' : 'bad';
+        const sign = delta.diff > 0 ? '+' : '';
+        deltaHtml = `<span class="delta ${cls}">${sign}${delta.pct.toFixed(1)}% desde o início</span>`;
+      }
+      return `<div class="prod" onclick="openProduct('${slug}')">
+        <div>
+          <div class="name">${p.description}</div>
+          <div class="meta">${p.history.length} busca${p.history.length===1?'':'s'} · última em ${last ? new Date(last.date).toLocaleDateString('pt-BR') : '—'} ${deltaHtml}</div>
+        </div>
+        <div class="price">${price}</div>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="card">
+      <label for="inputLine">Descrição do produto (marca, referência e especificação na mesma linha)</label>
+      <textarea id="inputLine" placeholder="Ex: Notebook Dell Inspiron 15 3520, i5-1235U, 8GB RAM, 256GB SSD"></textarea>
+      <div class="row" style="margin-top:10px;">
+        <button id="searchBtn" onclick="handleSearch()" ${state.loading?'disabled':''}>
+          ${state.loading?'<span class="spinner"></span>Buscando...':'🔍 Buscar preço agora'}
+        </button>
+      </div>
+      <div class="hint">Busca automática e gratuita no Mercado Livre em tempo real (preço, parcelamento e link). Cupons não são informados por esta API pública.</div>
+    </div>
+
+    <div class="card">
+      <strong style="font-size:14px;">🔎 Quer uma varredura mais ampla (Amazon, Magalu, Kabum, cupons...)?</strong>
+      <div class="hint" style="margin-bottom:10px;">Peça no chat do Claude: <em>"pesquise o preço de: [descrição do produto]"</em> e cole a resposta em JSON aqui embaixo. Útil pra fazer de vez em quando, tipo antes da Black Friday.</div>
+      <label for="importQuery">Nome do produto (opcional, ajuda a agrupar buscas futuras no mesmo item)</label>
+      <input id="importQuery" placeholder="Ex: Notebook Dell Inspiron 15 3520" style="margin-bottom:10px;">
+      <label for="importJson">Cole aqui o JSON retornado pelo Claude</label>
+      <textarea id="importJson" style="min-height:90px;" placeholder='{"produto_identificado": "...", "ofertas": [...], "melhor_preco_avista": 0}'></textarea>
+      <div class="row" style="margin-top:10px;">
+        <button class="secondary" onclick="handleImport()">📥 Importar resultado</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px;">
+        <strong style="font-size:14px;">Produtos rastreados</strong>
+      </div>
+      ${listHtml}
+    </div>
+  `;
+}
+
+function renderProduct(){
+  const slug = state.currentSlug;
+  const p = state.products[slug];
+  if(!p){ state.view='home'; render(); return; }
+  const last = lastEntry(p);
+  const delta = priceDelta(p);
+  const {days} = daysUntilBlackFriday();
+
+  let deltaBanner = '';
+  if(delta){
+    const cls = delta.diff <= 0 ? 'good' : 'bad';
+    const word = delta.diff <= 0 ? 'queda' : 'alta';
+    const sign = delta.diff > 0 ? '+' : '';
+    deltaBanner = `<div class="hint" style="font-size:14px;">
+      Variação desde a primeira busca: <span class="delta ${cls}" style="font-weight:700;">${sign}${fmtBRL(delta.diff)} (${sign}${delta.pct.toFixed(1)}%, ${word})</span>
+    </div>`;
+  }
+
+  const offersHtml = last && last.ofertas.length ? last.ofertas.map(o => `
+    <div class="offer">
+      <div class="top">
+        <div class="fonte">${o.fonte || 'Fonte não informada'}</div>
+        <div class="avista">${fmtBRL(o.preco_avista)}</div>
+      </div>
+      ${o.parcelas ? `<div class="parc">💳 ${o.parcelas}${o.preco_parcelado_total ? ' · total ' + fmtBRL(o.preco_parcelado_total) : ''}</div>` : ''}
+      ${o.cupom ? `<div class="cupom">🏷️ Cupom: ${o.cupom}</div>` : ''}
+      ${o.link ? `<div style="margin-top:6px;"><a href="${o.link}" target="_blank" rel="noopener">Ver oferta →</a></div>` : ''}
+    </div>
+  `).join('') : '<div class="hint">Sem ofertas registradas nesta busca.</div>';
+
+  const historyRows = p.history.slice().reverse().map((h,idx)=>{
+    const realIdx = p.history.length - 1 - idx;
+    let deltaCell = '—';
+    if(realIdx > 0){
+      const prev = p.history[realIdx-1].melhorPrecoAvista;
+      const cur = h.melhorPrecoAvista;
+      if(prev != null && cur != null && prev !== 0){
+        const diff = cur - prev;
+        const pct = (diff/prev)*100;
+        const cls = diff <= 0 ? 'good' : 'bad';
+        const sign = diff > 0 ? '+' : '';
+        deltaCell = `<span class="delta ${cls}">${sign}${fmtBRL(diff)} (${sign}${pct.toFixed(1)}%)</span>`;
+      }
+    }
+    return `<tr>
+      <td>${new Date(h.date).toLocaleString('pt-BR')}</td>
+      <td>${fmtBRL(h.melhorPrecoAvista)}</td>
+      <td>${deltaCell}</td>
+      <td>${h.observacoes || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('daysLeft').textContent = `🛍️ ${days} dias até a Black Friday`;
+
+  document.getElementById('app').innerHTML = `
+    <button class="ghost backbtn" onclick="goHome()">← Voltar</button>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div style="font-size:17px;font-weight:700;">${p.description}</div>
+          <div class="hint">Rastreando desde ${new Date(p.createdAt).toLocaleDateString('pt-BR')} · ${p.history.length} busca${p.history.length===1?'':'s'}</div>
+        </div>
+        <div class="row">
+          <button onclick="refreshProduct('${slug}')" ${state.loading?'disabled':''}>${state.loading?'<span class="spinner"></span>Buscando...':'🔄 Buscar de novo'}</button>
+          <button class="secondary" onclick="deleteProduct('${slug}')">🗑️ Remover</button>
+        </div>
+      </div>
+      ${deltaBanner}
+    </div>
+
+    <div class="card">
+      <strong style="font-size:14px;display:block;margin-bottom:12px;">Evolução do preço</strong>
+      ${renderChart(p.history)}
+    </div>
+
+    <div class="card">
+      <strong style="font-size:14px;display:block;margin-bottom:10px;">Melhores ofertas (última busca)</strong>
+      <div class="offers">${offersHtml}</div>
+    </div>
+
+    <div class="card">
+      <strong style="font-size:14px;display:block;margin-bottom:10px;">Histórico de buscas</strong>
+      <table>
+        <thead><tr><th>Data</th><th>Melhor preço à vista</th><th>Variação</th><th>Observações</th></tr></thead>
+        <tbody>${historyRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function render(){
+  if(state.view === 'product'){
+    renderProduct();
+  }else{
+    renderHome();
+  }
+}
+
+function openProduct(slug){
+  state.currentSlug = slug;
+  state.view = 'product';
+  render();
+}
+
+function goHome(){
+  state.view = 'home';
+  render();
+}
+
+loadAll();
+</script>
+</body>
+</html>
