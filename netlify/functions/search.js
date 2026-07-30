@@ -21,8 +21,10 @@ exports.handler = async (event, context) => {
     const url = 'https://api.mercadolibre.com/sites/MLB/search?q=' + encodeURIComponent(q) + '&limit=8';
     const mlResp = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RastreadorDePrecos/1.0)',
-        'Accept': 'application/json'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Referer': 'https://www.mercadolivre.com.br/'
       }
     });
     if (!mlResp.ok) {
