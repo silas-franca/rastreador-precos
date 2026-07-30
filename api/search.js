@@ -1,6 +1,3 @@
-// Função serverless da Vercel. Roda no servidor, então não sofre bloqueio de CORS.
-// Consulta a API pública do Mercado Livre (gratuita, sem necessidade de chave/token).
-
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
